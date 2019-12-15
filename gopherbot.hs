@@ -115,7 +115,7 @@ check to see if it's OK to download according to robots.txt.
 -}
 checkRobots :: Lock -> GASupply -> Connection -> GAddress -> IO RobotStatus
 checkRobots lock gasupply c ga = do
-  let fspath = getFSPath garobots
+  fspath <- getFSPath garobots
   dfe <- doesFileExist fspath
   unless dfe (procItem lock gasupply c garobots) -- Download file if needed
   dfe2 <- doesFileExist fspath -- Do we have it yet?
@@ -147,7 +147,7 @@ and process it. -}
 procItem :: Lock -> GASupply -> Connection -> GAddress -> IO ()
 procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $ do
   msg $ show item          -- Show what we're up to
-  let fspath = getFSPath item
+  fspath <- getFSPath item
 
   -- Create the directory for the file to go in, if necessary.
   catch (withLock lock (createDirectoryIfMissing True (fst $ splitFileName fspath)))

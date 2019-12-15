@@ -20,9 +20,10 @@ module RobotsTxt  where
 
 -- FIXME: should only consider first user-agent match?
 
-import Text.ParserCombinators.Parsec
-import Data.String.Utils
+import Data.Char (isSpace)
+import Data.List (isPrefixOf)
 import Network.URI
+import Text.ParserCombinators.Parsec
 
 ws :: Parser String
 ws = many (oneOf " \v\f\t")
@@ -58,7 +59,7 @@ kv = do
   _ <- ws
   v <- value
   _ <- toeol
-  return (rstrip v)
+  return (reverse . dropWhile isSpace $ reverse v)
 
 line :: String -> Parser String
 line key = try (defline key) <|> (kv >> fail "foo") <|> (emptyline >> line key)
@@ -95,4 +96,4 @@ isURLAllowed parsed agent url =
         filter (\i -> "*" `elem` fst i || agent `elem` fst i) parsed
       disallowparts = concatMap snd agentsfiltered
       escapedurl = escapeURIString (`notElem` " ?\n\r\0&") url
-   in not (any (\i -> startswith i url || startswith i escapedurl) disallowparts)
+   in not (any (\i -> isPrefixOf i url || isPrefixOf i escapedurl) disallowparts)

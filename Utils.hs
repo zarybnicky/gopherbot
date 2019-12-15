@@ -20,23 +20,23 @@ module Utils where
 
 import Control.Concurrent (myThreadId, newEmptyMVar, putMVar, tryTakeMVar)
 import Control.Exception (bracket_)
-import Data.Maybe.Utils (forceMaybeMsg)
+import Data.List (isPrefixOf)
+import System.Directory (makeAbsolute)
 import System.IO (hFlush, stdout)
-import System.Path (secureAbsNormPath)
 
 import Config (baseDir)
 import Types (Lock, GAddress(..))
 
 
-getFSPath :: GAddress -> FilePath
-getFSPath ga =
-  forceMaybeMsg ("getFSPath1 " ++ show ga) .
-  secureAbsNormPath (baseDir ++ "/gopher") $
-  (host ga ++ "/" ++ show (port ga) ++ "/" ++ path ga ++ dirtype)
-  where
-    dirtype = case dtype ga of
-      '1' -> "/.gophermap"
-      _ -> ""
+getFSPath :: GAddress -> IO FilePath
+getFSPath ga = do
+  let dirtype = case dtype ga of
+        '1' -> "/.gophermap"
+        _ -> ""
+  basepath <- makeAbsolute (host ga ++ "/" ++ show (port ga) ++ "/" ++ path ga ++ dirtype)
+  if (baseDir ++ "/gopher/") `isPrefixOf` basepath
+    then pure basepath
+    else error ("getFSPath1 " ++ show ga)
 
 newLock :: IO Lock
 newLock = newEmptyMVar

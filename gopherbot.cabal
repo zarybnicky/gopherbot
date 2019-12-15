@@ -26,8 +26,7 @@ executable gopherbot
                  , old-time
                  , parsec
                  , unix
-                 , MissingH >= 0.11.5
-                 , HDBC-postgresql >= 2.3.2.7
+                 , HDBC-postgresql >= 2.3.2.5
                  , HDBC
     other-modules: Config
                    DB
