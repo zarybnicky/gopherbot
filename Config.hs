@@ -17,15 +17,26 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
 module Config where
-import Data.List
-import Types
+
+import Types (GAddress(..))
 
 startingAddresses :: [GAddress]
-startingAddresses = 
-    [GAddress {host="home.jumpjet.info",port= 70,dtype= '1',path= "1/Gopher_Jewels_2"}]
+startingAddresses =
+  [ GAddress
+      { host = "gopher.floodgap.com"
+      , port = 70
+      , dtype = '1'
+      , path = "/"
+      }
+  ]
+
+excludeServers :: [String]
 excludeServers = [] --["gopher.quux.org", "quux.org"]
+
+baseDir :: String
 baseDir = "/home/jgoerzen/tree/gopher-arch"
 
+numThreads :: Int
 numThreads = 15
 
 

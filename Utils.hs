@@ -18,58 +18,54 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module Utils where
 
-import Types
-import Config
-import MissingH.Maybe
-import MissingH.Path
-import Control.Concurrent
-import Control.Exception
-import System.IO
---import Foreign.C.String
-import Data.List
+import Control.Concurrent (myThreadId, newEmptyMVar, putMVar, tryTakeMVar)
+import Control.Exception (bracket_)
+import Data.Maybe.Utils (forceMaybeMsg)
+import System.IO (hFlush, stdout)
+import System.Path (secureAbsNormPath)
+
+import Config (baseDir)
+import Types (Lock, GAddress(..))
 
 
 getFSPath :: GAddress -> FilePath
 getFSPath ga =
-    forceMaybeMsg ("getFSPath1 " ++ show ga) . secureAbsNormPath (baseDir ++ "/gopher") $ base
-    where base = (host ga) ++ "/" ++ (show $ port ga) ++ "/" ++
-              (path ga) ++ case (dtype ga) of
-                                           '1' -> "/.gophermap"
-                                           _ -> ""
+  forceMaybeMsg ("getFSPath1 " ++ show ga) .
+  secureAbsNormPath (baseDir ++ "/gopher") $
+  (host ga ++ "/" ++ show (port ga) ++ "/" ++ path ga ++ dirtype)
+  where
+    dirtype = case dtype ga of
+      '1' -> "/.gophermap"
+      _ -> ""
 
 newLock :: IO Lock
 newLock = newEmptyMVar
 
 acquire :: Lock -> IO ()
-acquire l =
-    do t <- myThreadId
-       putMVar l t
+acquire l = putMVar l =<< myThreadId
 
 release :: Lock -> IO ()
-release l =
-    do t <- myThreadId
-       r <- tryTakeMVar l
-       case r of
-              Nothing -> do msg $ "Warning: released lock which was unheld."
-              Just x -> if x == t
-                            then return ()
-                            else fail $ "Thread " ++ (show t) ++
-                                        " released lock held by thread " ++
-                                        (show x)
+release l = do
+  t <- myThreadId
+  r <- tryTakeMVar l
+  case r of
+    Nothing -> msg "Warning: released lock which was unheld."
+    Just x ->
+      if x == t
+        then return ()
+        else fail $
+             "Thread " ++ show t ++ " released lock held by thread " ++ show x
 
-withLock :: Lock -> (IO a) -> IO a
-withLock l action = bracket_ (acquire l) (release l) action
+withLock :: Lock -> IO a -> IO a
+withLock l = bracket_ (acquire l) (release l)
 
 msg :: String -> IO ()
-msg l =
-    do t <- myThreadId
-       let disp = (show t) ++ ": " ++ l ++ "\n"
-       putStr disp
-       hFlush stdout
-       --withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
+msg l = do
+  t <- myThreadId
+  let disp = show t ++ ": " ++ l ++ "\n"
+  putStr disp
+  hFlush stdout
+  --withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
 
 ce :: String -> String
-ce i =
-    '\'' : 
-         (concat $ map (\c -> if c == '\'' then "''" else [c]) i)
-    ++ "'"
+ce i = '\'' : concatMap (\c -> if c == '\'' then "''" else [c]) i ++ "'"

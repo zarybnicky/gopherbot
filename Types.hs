@@ -16,30 +16,41 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Types where
-import Control.Concurrent(ThreadId)
-import Control.Concurrent.MVar(MVar)
+import Control.Concurrent (ThreadId)
+import Control.Concurrent.MVar (MVar)
+import Data.Convertible
 import Data.List
-import Data.Map(Map)
+import Data.Map (Map)
 import Database.HDBC
 
 type GASupply = MVar (Map ThreadId (String, Statement))
 
-data State = NotVisited | VisitingNow | Visited | ErrorState | Excluded
-    deriving (Eq, Read, Show)
+data State
+  = NotVisited
+  | VisitingNow
+  | Visited
+  | ErrorState
+  | Excluded
+  deriving (Eq, Read, Show)
 
-instance SqlType State where
-    toSql s = SqlString (show s)
-    fromSql (SqlString s) = read s
-    fromSql x = error $ "Cannot convert " ++ show x ++ " into gopherbot.State"
+instance Convertible SqlValue State where
+  safeConvert (SqlString s) = read s
+  safeConvert x = error $ "Cannot convert " ++ show x ++ " into gopherbot.State"
 
-data GAddress = GAddress {host :: String, port :: Int, dtype :: Char,
-                          path :: String}
-    deriving (Eq)
+instance Convertible State SqlValue where
+  safeConvert s = return $ SqlString (show s)
+
+data GAddress = GAddress
+  { host :: String
+  , port :: Int
+  , dtype :: Char
+  , path :: String
+  } deriving (Eq)
 
 instance Show GAddress where
-    show a = concat . intersperse ":" $
-             [host a, show (port a), [dtype a], path a]
+  show a = intercalate ":" [host a, show (port a), [dtype a], path a]
 
 type Lock = MVar ThreadId
-

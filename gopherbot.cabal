@@ -1,19 +1,38 @@
-Name: gopherbot
-Version: 0.1.0
-License: GPL
-Maintainer: John Goerzen <jgoerzen@complete.org>
-Author: John Goerzen
+cabal-version: >=1.25
+name: gopherbot
+version: 0.1.0
+license: GPL
+maintainer: John Goerzen <jgoerzen@complete.org>
+author: John Goerzen
 license-file: COPYRIGHT
 extra-source-files: COPYING
-Category: Network
-Synopsis: Spidering robot to download files from Gopherspace
-Stability: Alpha
-Copyright: Copyright (c) 2005-2006 John Goerzen
-Build-Depends: base, network, unix, parsec, MissingH>=0.11.5, HDBC-postgresql, HDBC
+category: Network
+synopsis: Spidering robot to download files from Gopherspace
+stability: Alpha
+copyright: Copyright (c) 2005-2006 John Goerzen
+build-type: Simple
 
-Executable: gopherbot
-Extensions: ExistentialQuantification, OverlappingInstances,
-    UndecidableInstances
-GHC-Options: -O2 -optc -g3
-Main-Is: gopherbot.hs
-
+executable gopherbot
+    ghc-options: -O2 -Wall
+    main-is: gopherbot.hs
+    default-language: Haskell2010
+    build-depends: base
+                 , containers
+                 , convertible
+                 , directory
+                 , filepath
+                 , network
+                 , network-uri
+                 , old-time
+                 , parsec
+                 , unix
+                 , MissingH >= 0.11.5
+                 , HDBC-postgresql >= 2.3.2.7
+                 , HDBC
+    other-modules: Config
+                   DB
+                   DirParser
+                   NetClient
+                   RobotsTxt
+                   Types
+                   Utils

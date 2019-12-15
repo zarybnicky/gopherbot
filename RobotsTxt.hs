@@ -21,72 +21,78 @@ module RobotsTxt  where
 -- FIXME: should only consider first user-agent match?
 
 import Text.ParserCombinators.Parsec
-import Data.Maybe
-import MissingH.Str
+import Data.String.Utils
 import Network.URI
 
+ws :: Parser String
 ws = many (oneOf " \v\f\t")
 
+eol :: Parser String
 eol = string "\n" <|> string "\r\n" -- <|> (eof >> return "")
 
-badline = do many (noneOf "\r\n")
-             eol
+badline :: Parser String
+badline = many (noneOf "\r\n") >> eol
 
-comment = do char '#'
-             many (noneOf "\r\n")
-             eol
+comment :: Parser String
+comment = do
+  _ <- char '#'
+  _ <- many (noneOf "\r\n")
+  eol
 
-toeol = do ws
-           eol <|> comment
+toeol :: Parser String
+toeol = ws >> (eol <|> comment)
 
-emptyline = (try comment) <|> toeol
+emptyline :: Parser String
+emptyline = try comment <|> toeol
 
+value :: Parser String
 value = many (noneOf "#\t\n\r")
 
-defline key = 
-    do string key
-       kv
+defline :: String -> Parser String
+defline key = string key >> kv
 
-kv = do ws
-        char ':'
-        ws
-        v <- value
-        toeol
-        return (rstrip v)
+kv :: Parser String
+kv = do
+  _ <- ws
+  _ <- char ':'
+  _ <- ws
+  v <- value
+  _ <- toeol
+  return (rstrip v)
 
-line key = (try (defline key))
-           <|> (kv >> fail "foo")
-           <|> (emptyline >> line key)
+line :: String -> Parser String
+line key = try (defline key) <|> (kv >> fail "foo") <|> (emptyline >> line key)
 
+useragent :: Parser String
 useragent = try (line "User-agent")
+
+disallow :: Parser String
 disallow = try (line "Disallow")
 
-clauses = 
-    do agents <- many useragent
-       disallow <- many disallow
-       if agents == []
-          then fail "Found no User-agent"
-          else do next <- ((try clauses) <|> (return []))
-                  return ((agents, disallow) : next)
+clauses :: Parser [([String], [String])]
+clauses = do
+  agents <- many useragent
+  disallows <- many disallow
+  if null agents
+    then fail "Found no User-agent"
+    else ((agents, disallows) :) <$> try clauses <|> return []
 
 {- | Parse a robots.txt file and return a list corresponding to a clause.
 Each tuple in the list contains a list of user agents that the rule applies to,
 plus a list of Disallow records. -}
 parseRobots :: FilePath -> IO [([String], [String])]
-parseRobots fp =
-    do r <- parseFromFile clauses fp
-       case r of
-              Left x -> return []
-              Right x -> return x
+parseRobots fp = do
+  r <- parseFromFile clauses fp
+  case r of
+    Left _ -> return []
+    Right x -> return x
 
 {- | Given a parsed file, a user agent, and a URL, determine whether
 it's OK to process that URL. -}
 isURLAllowed :: [([String], [String])] -> String -> String -> Bool
 isURLAllowed parsed agent url =
-    let agentsfiltered = filter (\i -> "*" `elem` (fst i) ||
-                               agent `elem` (fst i)) parsed
-        disallowparts = concat . map snd $ agentsfiltered
-        escapedurl = escapeURIString (\c -> not $ elem c " ?\n\r\0&") url
-        in
-        not (any (\i -> startswith i url || startswith i escapedurl) disallowparts)
-        
+  let agentsfiltered =
+        filter (\i -> "*" `elem` fst i || agent `elem` fst i) parsed
+      disallowparts = concatMap snd agentsfiltered
+      escapedurl = escapeURIString (`notElem` " ?\n\r\0&") url
+   in not (any (\i -> startswith i url || startswith i escapedurl) disallowparts)

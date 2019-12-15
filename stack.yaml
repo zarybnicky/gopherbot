@@ -1,0 +1,11 @@
+resolver: lts-14.7
+
+packages:
+- .
+
+extra-deps:
+- HDBC-postgresql-2.3.2.7
+
+nix:
+  packages:
+    - postgresql

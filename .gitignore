@@ -1,0 +1,6 @@
+.direnv/
+.ghc.environment.*
+dist-newstyle/
+dist/
+\#*
+.stack-work/

@@ -1,4 +1,4 @@
-{- 
+{-
 Copyright (C) 2005 John Goerzen <jgoerzen@complete.org>
 
 This program is free software; you can redistribute it and/or modify
@@ -16,39 +16,52 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module DirParser (parseGMap) where
+{-# LANGUAGE RecordWildCards #-}
 
-import Types
+module DirParser
+  ( parseGMap
+  ) where
+
+import Data.Char (toLower)
+import Types (GAddress(..))
 import Text.ParserCombinators.Parsec
-import Utils
-import Data.Char
+import Utils (msg)
 
 parseGMap :: FilePath -> IO [GAddress]
-parseGMap fp =
-    do r <- parseFromFile parserMain fp
-       case r of
-              Left x -> do msg $ "WARNING: " ++ (show x)
-                           return []
-              Right x -> return x
+parseGMap fp = do
+  r <- parseFromFile parserMain fp
+  case r of
+    Left x -> do
+      msg $ "WARNING: " ++ show x
+      return []
+    Right x -> return x
 
+parserMain :: Parser [GAddress]
 parserMain = many gmapline
 
+eol :: Parser String
 eol = string "\r\n" <|> string "\n"
-extratoeol = do many (noneOf "\r\n")
-                (eof >> return "") <|> eol
-                
+
+extratoeol :: Parser String
+extratoeol = do
+  _ <- many (noneOf "\r\n")
+  (eof >> return "") <|> eol
+
+field :: Parser String
 field = many (noneOf "\r\n\t")
+
+reqField :: Parser String
 reqField = many1 (noneOf "\r\n\t")
 
-gmapline = 
-    do dtype <- anyChar
-       name <- field
-       tab
-       path <- field
-       tab
-       host <- reqField
-       tab
-       port <- many1 (digit)
-       extratoeol
-       return GAddress {host = map toLower host, port = read port, dtype = dtype,
-                        path = path}
+gmapline :: Parser GAddress
+gmapline = do
+  dtype <- anyChar
+  name <- field
+  _ <- tab
+  path <- field
+  _ <- tab
+  host <- fmap toLower <$> reqField
+  _ <- tab
+  port <- read <$> many1 digit
+  _ <- extratoeol
+  pure GAddress{..}
