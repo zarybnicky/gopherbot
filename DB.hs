@@ -21,7 +21,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 
 module DB
-  ( dbconnect
+  ( withdb
   , initdb
   , initTables
   , updateItem
@@ -31,42 +31,40 @@ module DB
   , noteErrorOnHost
   ) where
 
-import Control.Concurrent (ThreadId, myThreadId, modifyMVar, threadDelay)
+import Control.Concurrent (ThreadId, modifyMVar, myThreadId, threadDelay)
+import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Data.Char (toUpper)
 import Data.List (intercalate)
 import Database.HDBC
-import Database.HDBC.PostgreSQL
+import Database.HDBC.PostgreSQL (Connection, connectPostgreSQL)
 import System.Time (ClockTime(TOD), getClockTime)
 import Types (Lock, GASupply, GAddress(..), State(..))
 import Utils (msg, withLock)
 import qualified Data.Map as Map
 
-dbconnect :: IO Connection
-dbconnect = handleSqlError $ do
-  msg " *** Connecting to DB"
-  connectPostgreSQL "user = postgres"
+withdb :: (Connection -> IO a) -> IO a
+withdb = bracket dbconnect disconnect
+  where
+    dbconnect = handleSqlError $ do
+      msg " *** Connecting to DB"
+      connectPostgreSQL "user = postgres"
 
 {- | Initialize the database system. -}
 initdb :: IO ()
 initdb = do
   msg " *** Initializing database system..."
-  handleSqlError $ do
-    c <- dbconnect
+  handleSqlError $ withdb $ \c -> do
     initTables c
     r <- getCount c "state = ?" [toSql VisitingNow]
-    _ <- run c "SET ENABLE_SEQSCAN to OFF" []
-    when (r > 0) (msg $ "Resetting " ++ show r ++
-                      " files from VisitingNow to NotVisited.")
+    when (r > 0) (msg $ "Resetting " ++ show r ++ " files from VisitingNow to NotVisited.")
     _ <- run c "UPDATE FILES SET STATE = ? WHERE state = ?" [toSql NotVisited, toSql VisitingNow]
     commit c
-    disconnect c
 
 initTables :: Connection -> IO ()
 initTables conn = handleSqlError $ do
-  t <- getTables conn
-  let t2 = map (map toUpper) t
-  when ("FILES" `notElem` t2) $ do
+  t <- fmap (fmap toUpper) <$> getTables conn
+  when ("FILES" `notElem` t) $ do
     _ <- run conn "CREATE TABLE files (host TEXT, port INTEGER, dtype TEXT, path TEXT, state TEXT, timestamp INTEGER, log TEXT)" []
     _ <- run conn "CREATE UNIQUE INDEX files1 ON files(host, port, path)" []
     _ <- run conn "CREATE INDEX filesstate ON files (state, host)" []
@@ -117,14 +115,14 @@ noteErrorOnHost l gasupply c h logString = handleSqlError $ do
     ti <- now
     msg $ " *** Noting error on host " ++ h
     case Map.lookup t m of
-      Nothing -> return ()
+      Nothing -> pure ()
       Just (_, sth) -> finish sth
     _ <- run c ("UPDATE FILES SET state = ?, log = ?, timestamp = ?"
            ++ " WHERE host = ? AND (state = ? OR state = ?)")
           [toSql ErrorState, toSql logString, ti,
            toSql h, toSql NotVisited, toSql VisitingNow]
     commit c
-    return (Map.delete t m, ())
+    pure (Map.delete t m, ())
 
 updateItem :: Lock -> Connection -> GAddress -> State -> String -> IO ()
 updateItem lock conn g s = withLock lock . updateItemNL conn g s
@@ -207,7 +205,7 @@ beginSearch m conn = handleSqlError $ do
       msg "No available hosts; dying"
       -- Couldn't find any available hosts.  For now, we just die.
       -- FIXME: later should find a better way to do this.
-      return (m, Nothing)
+      pure (m, Nothing)
     x -> fail $ "Unexpected result in beginSearch: " ++ show x
   where
     whereclause =
@@ -222,7 +220,7 @@ fetchSth ::
   -> Connection
   -> IO (Map.Map ThreadId (String, Statement), Maybe GAddress)
 fetchSth m (_, sth) conn = fetchRow sth >>= \case
-  Just row -> return
+  Just row -> pure
       ( m
       , Just GAddress
         { host = fromSql (head row)

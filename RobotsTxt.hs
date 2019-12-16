@@ -1,4 +1,4 @@
-{- 
+{-
 Copyright (C) 2005 John Goerzen <jgoerzen@complete.org>
 
 This program is free software; you can redistribute it and/or modify
@@ -16,7 +16,10 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module RobotsTxt  where
+module RobotsTxt
+  ( parseRobots
+  , isURLAllowed
+  ) where
 
 -- FIXME: should only consider first user-agent match?
 
@@ -25,59 +28,6 @@ import Data.List (isPrefixOf)
 import Network.URI
 import Text.ParserCombinators.Parsec
 
-ws :: Parser String
-ws = many (oneOf " \v\f\t")
-
-eol :: Parser String
-eol = string "\n" <|> string "\r\n" -- <|> (eof >> return "")
-
-badline :: Parser String
-badline = many (noneOf "\r\n") >> eol
-
-comment :: Parser String
-comment = do
-  _ <- char '#'
-  _ <- many (noneOf "\r\n")
-  eol
-
-toeol :: Parser String
-toeol = ws >> (eol <|> comment)
-
-emptyline :: Parser String
-emptyline = try comment <|> toeol
-
-value :: Parser String
-value = many (noneOf "#\t\n\r")
-
-defline :: String -> Parser String
-defline key = string key >> kv
-
-kv :: Parser String
-kv = do
-  _ <- ws
-  _ <- char ':'
-  _ <- ws
-  v <- value
-  _ <- toeol
-  return (reverse . dropWhile isSpace $ reverse v)
-
-line :: String -> Parser String
-line key = try (defline key) <|> (kv >> fail "foo") <|> (emptyline >> line key)
-
-useragent :: Parser String
-useragent = try (line "User-agent")
-
-disallow :: Parser String
-disallow = try (line "Disallow")
-
-clauses :: Parser [([String], [String])]
-clauses = do
-  agents <- many useragent
-  disallows <- many disallow
-  if null agents
-    then fail "Found no User-agent"
-    else ((agents, disallows) :) <$> try clauses <|> return []
-
 {- | Parse a robots.txt file and return a list corresponding to a clause.
 Each tuple in the list contains a list of user agents that the rule applies to,
 plus a list of Disallow records. -}
@@ -85,8 +35,8 @@ parseRobots :: FilePath -> IO [([String], [String])]
 parseRobots fp = do
   r <- parseFromFile clauses fp
   case r of
-    Left _ -> return []
-    Right x -> return x
+    Left _ -> pure []
+    Right x -> pure x
 
 {- | Given a parsed file, a user agent, and a URL, determine whether
 it's OK to process that URL. -}
@@ -97,3 +47,53 @@ isURLAllowed parsed agent url =
       disallowparts = concatMap snd agentsfiltered
       escapedurl = escapeURIString (`notElem` " ?\n\r\0&") url
    in not (any (\i -> isPrefixOf i url || isPrefixOf i escapedurl) disallowparts)
+
+clauses :: Parser [([String], [String])]
+clauses = do
+  agents <- many useragent
+  disallows <- many disallow
+  if null agents
+    then fail "Found no User-agent"
+    else ((agents, disallows) :) <$> try clauses <|> pure []
+
+useragent :: Parser String
+useragent = try (line "User-agent")
+
+disallow :: Parser String
+disallow = try (line "Disallow")
+
+emptyline :: Parser String
+emptyline = try comment <|> toeol
+
+line :: String -> Parser String
+line key = try (defline key) <|> (kv >> fail "foo") <|> (emptyline >> line key)
+
+kv :: Parser String
+kv = do
+  _ <- ws
+  _ <- char ':'
+  _ <- ws
+  v <- value
+  _ <- toeol
+  pure (reverse . dropWhile isSpace $ reverse v)
+
+value :: Parser String
+value = many (noneOf "#\t\n\r")
+
+defline :: String -> Parser String
+defline key = string key >> kv
+
+comment :: Parser String
+comment = do
+  _ <- char '#'
+  _ <- many (noneOf "\r\n")
+  eol
+
+toeol :: Parser String
+toeol = ws >> (eol <|> comment)
+
+eol :: Parser String
+eol = string "\n" <|> string "\r\n"
+
+ws :: Parser String
+ws = many (oneOf " \v\f\t")

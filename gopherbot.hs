@@ -21,11 +21,11 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Main where
 
 import Control.Concurrent
-import Control.Exception (IOException, bracket, catch, finally)
+import Control.Exception (IOException, catch)
 import Control.Monad (replicateM, unless, when)
 import Data.List (intercalate)
 import Database.HDBC.PostgreSQL (Connection)
-import Database.HDBC (disconnect, fromSql, quickQuery)
+import Database.HDBC (fromSql, quickQuery)
 import Network.Socket (withSocketsDo)
 import System.Directory (setCurrentDirectory, doesFileExist, createDirectoryIfMissing)
 import System.FilePath (splitFileName)
@@ -52,57 +52,40 @@ main = withSocketsDo $ do         -- Prepare things for sockets
 {- | Set up all the threads and get them going. -}
 runScan :: GASupply -> Lock -> IO ()
 runScan gasupply l = do
-  c <- dbconnect
-  n <- numToProc c
-  msg $ show n ++ " items to process"
-  when (n == 0)            -- Nothing to do: prime the db
-     (mapM_ (\g -> updateItem l c g NotVisited "") startingAddresses)
+  withdb $ \c -> do
+    n <- numToProc c
+    msg $ show n ++ " items to process"
+    -- Nothing to do: prime the db
+    when (n == 0) (mapM_ (\g -> updateItem l c g NotVisited "") startingAddresses)
+
   {- Fork off the childthreads.  Each one goes into a loop
      of waiting for new items to process and processing them. -}
-  disconnect c
-  children <- replicateM numThreads (myForkOS (procLoop l gasupply))
+  children <- replicateM numThreads $ myForkOS (withdb (procLoop l gasupply))
   -- This is the thread that displays status updates every so often
-  --stats <- forkOS (statsthread l)
+  _ <- forkOS (statsthread l)
   -- When the main thread exits, so does the program, so
   -- we wait for all children before exiting.
-  waitForChildren children
+  mapM_ takeMVar children
 
 {- | A simple wrapper around forkOS to notify the main thread when each
 individual thread dies. -}
-myForkOS :: IO () -> IO (MVar ThreadId)
+myForkOS :: IO () -> IO (MVar ())
 myForkOS io = do
   mvar <- newEmptyMVar
-  _ <- forkIO ((msg "started." >> io) `finally` (myThreadId >>= putMVar mvar))
-  return mvar
-
-{- | Wait for child threads to die.
-This should only happen when there is nothing else to spider. -}
-waitForChildren :: [MVar ThreadId] -> IO ()
-waitForChildren [] = msg "All children died; exiting."
-waitForChildren (c:xs) = do
-  t <- takeMVar c
-  msg $ " *********** Thread died: " ++ show t
-  waitForChildren xs
-
-{- | Main entry point for each worker thread.  We just pop the first item,
-then call procLoop'. -}
-procLoop :: Lock -> GASupply -> IO ()
-procLoop lock gasupply = bracket dbconnect disconnect (procLoop' lock gasupply)
-
+  _ <- forkFinally (msg "started." >> io) (\_ -> putMVar mvar ())
+  pure mvar
 
 {- | Main worker loop.  We receive an item and process it.  If it's
 Nothing, there is nothing else to do, so the thread shuts down.
 Otherwise, call procItem, pop the next, and then call itself. -}
-procLoop' :: Lock -> GASupply -> Connection -> IO ()
-procLoop' lock gasupply c = do
+procLoop :: Lock -> GASupply -> Connection -> IO ()
+procLoop lock gasupply c = do
   mi <- popItem lock gasupply c
   case mi of
-    Nothing -> msg "Exiting"
+    Nothing -> msg "No items left, exiting"
     Just item -> do
       procItem lock gasupply c item
-      -- Popping the next item before releasing the current
-      -- host is a simple form of being nice to remotes
-      procLoop' lock gasupply c
+      procLoop lock gasupply c
 
 {- | What happened when we checked the robots.txt file? -}
 data RobotStatus
@@ -122,8 +105,8 @@ checkRobots lock gasupply c ga = do
   if dfe2
     then do -- Yes.  Parse it, and see what happened.
       r <- parseRobots fspath
-      return $ if isURLAllowed r "gopherbot" (path ga) then RobotsOK else RobotsDeny
-    else return RobotsError -- No.  TCP error occured.
+      pure $ if isURLAllowed r "gopherbot" (path ga) then RobotsOK else RobotsDeny
+    else pure RobotsError -- No.  TCP error occured.
   where
     garobots = ga {path = "robots.txt", dtype = '0'}
 
@@ -132,7 +115,7 @@ procIfRobotsOK :: Lock -> GASupply -> Connection -> GAddress -> IO () -> IO ()
 procIfRobotsOK lock gasupply c item action = do
   r <- if path item /= "robots.txt"
       then checkRobots lock gasupply c item
-      else return RobotsOK
+      else pure RobotsOK
   case r of
     RobotsOK -> action
     RobotsDeny -> do
@@ -146,7 +129,7 @@ procIfRobotsOK lock gasupply c item action = do
 and process it. -}
 procItem :: Lock -> GASupply -> Connection -> GAddress -> IO ()
 procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $ do
-  msg $ show item          -- Show what we're up to
+  msg (show item)
   fspath <- getFSPath item
 
   -- Create the directory for the file to go in, if necessary.
@@ -159,10 +142,10 @@ procItem lock gasupply c item = procIfRobotsOK lock gasupply c item $ do
         (\(e :: IOException) -> do
             msg $ "Single-item error on " ++ show item ++ ": " ++ show e
             updateItem lock c item ErrorState (show e)
-            return Nothing)
+            pure Nothing)
 
   case fh of
-    Nothing -> return ()
+    Nothing -> pure ()
     Just h -> -- Now, download it.  If it's a menu
               --(item type 1), check it for links
               -- (spider it).  Error here means a TCP
@@ -188,18 +171,13 @@ spider l c fspath = do
 
 {- | This thread prints a periodic status update. -}
 statsthread :: Lock -> IO ()
-statsthread l = do
-  c <- dbconnect
-  statsthread' l c
-  disconnect c
-
-statsthread' :: Lock -> Connection -> IO ()
-statsthread' l conn = do
-  res <- quickQuery conn "SELECT state, COUNT(*) from files group by state order by state" []
-  let counts = map (\[s, c] -> (fromSql s, fromSql c :: Integer)) res
-  let total = sum (map snd counts)
-  let totaltext = "Total " ++ show total
-  let statetxts = map (\(h, c) -> h ++ " " ++ show c) counts
-  msg $ intercalate ", " (totaltext : statetxts)
+statsthread l =  do
+  withdb $ \conn -> do
+    res <- quickQuery conn "SELECT state, COUNT(*) from files group by state order by state" []
+    let counts = map (\[s, c] -> (fromSql s, fromSql c :: Integer)) res
+    let total = sum (map snd counts)
+    let totaltext = "Total " ++ show total
+    let statetxts = map (\(h, c) -> h ++ " " ++ show c) counts
+    msg $ intercalate ", " (totaltext : statetxts)
   threadDelay (120 * 1000000)
-  statsthread' l conn
+  statsthread l

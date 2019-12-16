@@ -41,7 +41,7 @@ instance Convertible SqlValue State where
   safeConvert x = error $ "Cannot convert " ++ show x ++ " into gopherbot.State"
 
 instance Convertible State SqlValue where
-  safeConvert s = return $ SqlString (show s)
+  safeConvert s = pure $ SqlString (show s)
 
 data GAddress = GAddress
   { host :: String

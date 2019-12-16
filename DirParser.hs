@@ -33,8 +33,8 @@ parseGMap fp = do
   case r of
     Left x -> do
       msg $ "WARNING: " ++ show x
-      return []
-    Right x -> return x
+      pure []
+    Right x -> pure x
 
 parserMain :: Parser [GAddress]
 parserMain = many gmapline
@@ -45,7 +45,7 @@ eol = string "\r\n" <|> string "\n"
 extratoeol :: Parser String
 extratoeol = do
   _ <- many (noneOf "\r\n")
-  (eof >> return "") <|> eol
+  (eof >> pure "") <|> eol
 
 field :: Parser String
 field = many (noneOf "\r\n\t")
@@ -56,7 +56,7 @@ reqField = many1 (noneOf "\r\n\t")
 gmapline :: Parser GAddress
 gmapline = do
   dtype <- anyChar
-  name <- field
+  _name <- field
   _ <- tab
   path <- field
   _ <- tab

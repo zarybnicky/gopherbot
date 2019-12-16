@@ -16,17 +16,20 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module Utils where
+module Utils
+  ( getFSPath
+  , newLock
+  , withLock
+  , msg
+  ) where
 
+import Config (baseDir)
 import Control.Concurrent (myThreadId, newEmptyMVar, putMVar, tryTakeMVar)
 import Control.Exception (bracket_)
 import Data.List (isPrefixOf)
 import System.Directory (makeAbsolute)
 import System.IO (hFlush, stdout)
-
-import Config (baseDir)
 import Types (Lock, GAddress(..))
-
 
 getFSPath :: GAddress -> IO FilePath
 getFSPath ga = do
@@ -52,7 +55,7 @@ release l = do
     Nothing -> msg "Warning: released lock which was unheld."
     Just x ->
       if x == t
-        then return ()
+        then pure ()
         else fail $
              "Thread " ++ show t ++ " released lock held by thread " ++ show x
 
@@ -62,10 +65,5 @@ withLock l = bracket_ (acquire l) (release l)
 msg :: String -> IO ()
 msg l = do
   t <- myThreadId
-  let disp = show t ++ ": " ++ l ++ "\n"
-  putStr disp
+  putStrLn (show t ++ ": " ++ l)
   hFlush stdout
-  --withCStringLen disp (\(c, len) -> hPutBuf stdout c len >> hFlush stdout)
-
-ce :: String -> String
-ce i = '\'' : concatMap (\c -> if c == '\'' then "''" else [c]) i ++ "'"

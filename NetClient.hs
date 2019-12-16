@@ -16,32 +16,28 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module NetClient where
+{-# LANGUAGE OverloadedStrings #-}
 
-import Control.Exception(catch, finally, bracket)
+module NetClient
+  ( dlItem
+  ) where
+
+import Control.Exception (bracket, finally)
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as BL
 import Network.Socket
-import Types
-import System.IO
-import System.IO.Error
+  (AddrInfo(..), Socket, SocketType(..), connect, close, defaultHints, getAddrInfo, socket)
+import Network.Socket.ByteString (recv, sendAll)
+import Types (GAddress(..))
+import System.IO (Handle, hClose)
 import System.Timeout (timeout)
-
-timeo :: Int
-timeo = 120 * 1000000
-
-cto :: String -> IO a -> IO a
-cto msg action = do
-  r <- timeout timeo action
-  case r of
-    Nothing -> fail msg
-    Just x -> return x
 
 dlItem :: GAddress -> Handle -> IO ()
 dlItem ga fh = flip finally (hClose fh) $ do
   let hints = defaultHints { addrSocketType = Stream }
   addr <- head <$> getAddrInfo (Just hints) (Just $ host ga) (Just . show $ port ga)
-  bracket (cto "Timeout on connect" $ open addr) (cto "Timeout on close" . close) $ \s -> do
-    cto "Timeout on send" $ sendAll s $ path ga ++ "\r\n"
-    --cto "Timeout on shotdown" $ shutdown s ShutdownSend
+  bracket (cto "connect" $ open addr) (cto "close" . close) $ \s -> do
+    cto "send" $ sendAll s (BC.pack (path ga) <> "\r\n")
     if dtype ga == '1'
       then dlTillDot s fh
       else dlTo s fh
@@ -51,36 +47,25 @@ dlItem ga fh = flip finally (hClose fh) $ do
       connect sock $ addrAddress addr
       pure sock
 
-dlTillDot :: Socket -> Handle -> IO ()
-dlTillDot s fh = do
-  c <- sGetContents s
-  hPutStr fh (process c)
-  where
-    process = unlines . filter (`notElem` [".", ".\r", ".\r\n"]) . lines
-
-sendAll :: Socket -> String -> IO ()
-sendAll _ [] = return ()
-sendAll s buf = do
-  bytessent <- send s buf
-  sendAll s (drop bytessent buf)
-
-recvBlocks :: Socket -> (a -> String -> IO a) -> a -> IO a
-recvBlocks s action state = do
-  buf <- cto "Timeout on recv" (dorecv 8192)
-  if null buf
-    then return state
-    else do
-      newstate <- action state buf
-      recvBlocks s action newstate
-  where
-    dorecv len = catch
-      (recv s len)
-      (\e -> if isEOFError e then pure [] else ioError e)
-
--- FIXME: this is slow and a RAM hog.
-
-sGetContents :: Socket -> IO String
-sGetContents s = recvBlocks s (\o n -> return $ o ++ n) []
-
 dlTo :: Socket -> Handle -> IO ()
-dlTo s fh = recvBlocks s (\() buf -> hPutStr fh buf) ()
+dlTo s fh = do
+  chunk <- cto "recv" (recv s 4096)
+  case chunk of
+    "" -> pure ()
+    _ -> BC.hPut fh chunk >> dlTo s fh
+
+dlTillDot :: Socket -> Handle -> IO ()
+dlTillDot s fh = BC.hPut fh . process . BL.toStrict =<< sGetContents
+  where
+    sGetContents = do
+      chunk <- cto "recv" (recv s 4096)
+      case chunk of
+        "" -> pure ""
+        _ -> (BL.fromStrict chunk <>) <$> sGetContents
+    process = BC.unlines . filter (`notElem` [".", ".\r", ".\r\n"]) . BC.lines
+
+cto :: String -> IO a -> IO a
+cto msg action =
+  maybe (fail ("Timeout on " ++ msg)) pure =<< timeout timeo action
+  where
+    timeo = 120 * 1000000
