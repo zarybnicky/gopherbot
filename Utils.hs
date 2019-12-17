@@ -1,4 +1,4 @@
-{- 
+{-
 Copyright (C) 2005 John Goerzen <jgoerzen@complete.org>
 
 This program is free software; you can redistribute it and/or modify
@@ -18,49 +18,24 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 module Utils
   ( getFSPath
-  , newLock
-  , withLock
   , msg
   ) where
 
-import Config (baseDir)
-import Control.Concurrent (myThreadId, newEmptyMVar, putMVar, tryTakeMVar)
-import Control.Exception (bracket_)
+import Control.Concurrent (myThreadId)
 import Data.List (isPrefixOf)
 import System.Directory (makeAbsolute)
 import System.IO (hFlush, stdout)
-import Types (Lock, GAddress(..))
+import Types (GAddress(..))
 
-getFSPath :: GAddress -> IO FilePath
-getFSPath ga = do
+getFSPath :: String -> GAddress -> IO FilePath
+getFSPath base ga = do
   let dirtype = case dtype ga of
         '1' -> "/.gophermap"
         _ -> ""
   basepath <- makeAbsolute (host ga ++ "/" ++ show (port ga) ++ "/" ++ path ga ++ dirtype)
-  if (baseDir ++ "/gopher/") `isPrefixOf` basepath
+  if (base ++ "/gopher/") `isPrefixOf` basepath
     then pure basepath
     else error ("getFSPath1 " ++ show ga)
-
-newLock :: IO Lock
-newLock = newEmptyMVar
-
-acquire :: Lock -> IO ()
-acquire l = putMVar l =<< myThreadId
-
-release :: Lock -> IO ()
-release l = do
-  t <- myThreadId
-  r <- tryTakeMVar l
-  case r of
-    Nothing -> msg "Warning: released lock which was unheld."
-    Just x ->
-      if x == t
-        then pure ()
-        else fail $
-             "Thread " ++ show t ++ " released lock held by thread " ++ show x
-
-withLock :: Lock -> IO a -> IO a
-withLock l = bracket_ (acquire l) (release l)
 
 msg :: String -> IO ()
 msg l = do

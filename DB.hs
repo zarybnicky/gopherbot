@@ -36,30 +36,30 @@ import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Data.Char (toUpper)
 import Data.List (intercalate)
+import qualified Data.Map as Map
 import Database.HDBC
 import Database.HDBC.PostgreSQL (Connection, connectPostgreSQL)
+import Lock (withLock)
 import System.Time (ClockTime(TOD), getClockTime)
-import Types (Lock, GASupply, GAddress(..), State(..))
-import Utils (msg, withLock)
-import qualified Data.Map as Map
+import Types (Env(..), GAddress(..), State(..))
+import Utils (msg)
 
-withdb :: (Connection -> IO a) -> IO a
-withdb = bracket dbconnect disconnect
+withdb :: Env -> (Connection -> IO a) -> IO a
+withdb env = bracket dbconnect disconnect
   where
     dbconnect = handleSqlError $ do
       msg " *** Connecting to DB"
-      connectPostgreSQL "user = postgres"
+      connectPostgreSQL (dbConn env)
 
 {- | Initialize the database system. -}
-initdb :: IO ()
-initdb = do
+initdb :: Connection -> IO ()
+initdb c = do
   msg " *** Initializing database system..."
-  handleSqlError $ withdb $ \c -> do
-    initTables c
-    r <- getCount c "state = ?" [toSql VisitingNow]
-    when (r > 0) (msg $ "Resetting " ++ show r ++ " files from VisitingNow to NotVisited.")
-    _ <- run c "UPDATE FILES SET STATE = ? WHERE state = ?" [toSql NotVisited, toSql VisitingNow]
-    commit c
+  initTables c
+  r <- getCount c "state = ?" [toSql VisitingNow]
+  when (r > 0) (msg $ "Resetting " ++ show r ++ " files from VisitingNow to NotVisited.")
+  _ <- run c "UPDATE FILES SET STATE = ? WHERE state = ?" [toSql NotVisited, toSql VisitingNow]
+  commit c
 
 initTables :: Connection -> IO ()
 initTables conn = handleSqlError $ do
@@ -108,10 +108,10 @@ initTables conn = handleSqlError $ do
       ]
     pure ()
 
-noteErrorOnHost :: Lock -> GASupply -> Connection -> String -> String -> IO ()
-noteErrorOnHost l gasupply c h logString = handleSqlError $ do
+noteErrorOnHost :: Env -> Connection -> String -> String -> IO ()
+noteErrorOnHost env c h logString = handleSqlError $ do
   t <- myThreadId
-  modifyMVar gasupply $ \m -> withLock l $ do
+  modifyMVar (gasupply env) $ \m -> withLock (lock env) $ do
     ti <- now
     msg $ " *** Noting error on host " ++ h
     case Map.lookup t m of
@@ -124,8 +124,8 @@ noteErrorOnHost l gasupply c h logString = handleSqlError $ do
     commit c
     pure (Map.delete t m, ())
 
-updateItem :: Lock -> Connection -> GAddress -> State -> String -> IO ()
-updateItem lock conn g s = withLock lock . updateItemNL conn g s
+updateItem :: Env -> Connection -> GAddress -> State -> String -> IO ()
+updateItem env conn g s = withLock (lock env) . updateItemNL conn g s
 
 updateItemNL :: Connection -> GAddress -> State -> String -> IO ()
 updateItemNL conn g s logString =
@@ -156,9 +156,9 @@ getCount conn whereclause parms = do
         ("SELECT COUNT(*) FROM FILES WHERE " ++ whereclause) parms
   pure . fromSql . head $ head r
 
-queueItems :: Lock -> Connection -> [GAddress] -> IO ()
-queueItems lock conn g =
-  withLock lock $ withTransaction conn (\c -> mapM_ (queueItemNL c) g)
+queueItems :: Env -> Connection -> [GAddress] -> IO ()
+queueItems env conn g =
+  withLock (lock env) $ withTransaction conn (\c -> mapM_ (queueItemNL c) g)
 
 -- Don't care if the insert fails; that means we already know of it.
 queueItemNL :: Connection -> GAddress -> IO ()
@@ -173,12 +173,12 @@ to Visiting.  Returns Nothing if there is no next item.
 General algorithm: pick an available host (one not being serviced by
 another thread) and process everything possible within it.
 -}
-popItem :: Lock -> GASupply -> Connection -> IO (Maybe GAddress)
-popItem lock gamv conn =
+popItem :: Env -> Connection -> IO (Maybe GAddress)
+popItem env conn =
   handleSqlError $ do
     threadDelay 1000000
     t <- myThreadId
-    modifyMVar gamv $ \gmap -> withLock lock $
+    modifyMVar (gasupply env) $ \gmap -> withLock (lock env) $
       case Map.lookup t gmap of
         Nothing -> beginSearch gmap conn
         Just (host', sth) -> fetchSth gmap (host', sth) conn

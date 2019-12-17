@@ -25,6 +25,7 @@ executable gopherbot
                  , network
                  , network-uri
                  , old-time
+                 , optparse-generic
                  , parsec
                  , unix
                  , HDBC-postgresql >= 2.3.2.5
