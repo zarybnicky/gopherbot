@@ -34,14 +34,14 @@ import System.Timeout (timeout)
 
 dlItem :: GAddress -> Handle -> IO ()
 dlItem ga fh = flip finally (hClose fh) $ do
-  let hints = defaultHints { addrSocketType = Stream }
-  addr <- head <$> getAddrInfo (Just hints) (Just $ host ga) (Just . show $ port ga)
+  addr <- head <$> getAddrInfo (Just streamHints) (Just $ host ga) (Just . show $ port ga)
   bracket (cto "connect" $ open addr) (cto "close" . close) $ \s -> do
     cto "send" $ sendAll s (BC.pack (path ga) <> "\r\n")
     if dtype ga == '1'
       then dlTillDot s fh
       else dlTo s fh
   where
+    streamHints = defaultHints { addrSocketType = Stream }
     open addr = do
       sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
       connect sock $ addrAddress addr

@@ -30,8 +30,7 @@ executable gopherbot
                  , unix
                  , HDBC-postgresql >= 2.3.2.5
                  , HDBC
-    other-modules: Config
-                   DB
+    other-modules: DB
                    DirParser
                    NetClient
                    RobotsTxt
