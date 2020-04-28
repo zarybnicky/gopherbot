@@ -9,5 +9,4 @@ let pkgs = import <nixpkgs> {
 }; in
 pkgs.haskellPackages.shellFor {
   packages = p: [p.gopherbot];
-  buildInputs = [pkgs.sass];
 }

@@ -31,13 +31,11 @@ module Types
   ) where
 
 import Control.Concurrent (ThreadId, MVar, newMVar)
-import Data.Convertible
 import Data.List
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import Data.Typeable (Typeable)
-import Database.HDBC
 import GHC.Generics (Generic)
 import Lock (Lock, newLock)
 import Options.Generic

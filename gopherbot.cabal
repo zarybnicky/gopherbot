@@ -16,10 +16,10 @@ executable gopherbot
     ghc-options: -O2 -Wall
     main-is: gopherbot.hs
     default-language: Haskell2010
+
     build-depends: base
                  , bytestring
                  , containers
-                 , convertible
                  , directory
                  , filepath
                  , network
@@ -28,8 +28,9 @@ executable gopherbot
                  , optparse-generic
                  , parsec
                  , unix
-                 , HDBC-postgresql >= 2.3.2.5
-                 , HDBC
+                 , persistent
+                 , persistent-sqlite
+
     other-modules: DB
                    DirParser
                    NetClient
